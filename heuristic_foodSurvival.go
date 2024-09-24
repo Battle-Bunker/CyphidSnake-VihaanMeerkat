@@ -6,86 +6,65 @@ import (
   "math"
 )
 
-// HeuristicFoodAndSurvival calculates a heuristic score based on health, food proximity, and survival potential
-func HeuristicFoodAndSurvival(snapshot agent.GameSnapshot) float64 {
+// HeuristicFoodSafety calculates a heuristic score based on the team's health and food safety
+func HeuristicFoodSafety(snapshot agent.GameSnapshot) float64 {
   var score float64
-  you := snapshot.You()
 
-  // Health component
-  healthScore := float64(you.Health())
-  if you.Health() < 70 {
-    healthScore *= 1.5 // Increase importance of health when below 70
+  for _, allySnake := range snapshot.YourTeam() {
+    // Base score is the snake's current health
+    snakeScore := float64(allySnake.Health())
+
+    // If health is below 70, add bonus for nearby safe food
+    if allySnake.Health() < 70 {
+      snakeScore += evaluateFoodSafety(snapshot, allySnake)
+    }
+
+    score += snakeScore
   }
-  score += healthScore
-
-  // Food proximity and safety component
-  foodScore := calculateFoodScore(snapshot, you)
-  score += foodScore
-
-  // Survival potential component
-  survivalScore := calculateSurvivalScore(snapshot, you)
-  score += survivalScore
 
   return score
 }
 
-func calculateFoodScore(snapshot agent.GameSnapshot, you agent.SnakeSnapshot) float64 {
-  var foodScore float64
+// evaluateFoodSafety calculates a bonus score based on nearby safe food
+func evaluateFoodSafety(snapshot agent.GameSnapshot, snake agent.SnakeSnapshot) float64 {
+  var foodBonus float64
+  head := snake.Head()
+
   for _, food := range snapshot.Food() {
-    distanceToFood := manhattanDistance(you.Head(), food)
-    if distanceToFood == 0 {
-      continue // Skip food at the same position as the head
+    distance := manhattanDistance(head, food)
+    if distance > 5 {
+      continue // Only consider nearby food
     }
 
-    // Penalize food close to borders
-    borderPenalty := calculateBorderPenalty(food, snapshot.Width(), snapshot.Height())
+    safety := evaluateFoodPositionSafety(snapshot, food)
 
-    // Penalize food close to enemies
-    enemyPenalty := calculateEnemyPenalty(food, snapshot.Opponents())
-
-    // Calculate food value (inverse of distance, adjusted by penalties)
-    foodValue := 100.0 / (float64(distanceToFood) * (1 + borderPenalty + enemyPenalty))
-    foodScore += foodValue
+    // The closer and safer the food, the higher the bonus
+    foodBonus += float64(6 - distance) * safety
   }
-  return foodScore
+
+  return foodBonus
 }
 
-func calculateSurvivalScore(snapshot agent.GameSnapshot, you agent.SnakeSnapshot) float64 {
-  var survivalScore float64
-  numForwardMoves := len(you.ForwardMoves())
-  survivalScore += float64(numForwardMoves) * 10 // Reward having more move options
+// evaluateFoodPositionSafety checks if the food is in a safe position
+func evaluateFoodPositionSafety(snapshot agent.GameSnapshot, food rules.Point) float64 {
+  safety := 1.0
 
-  // Compare food count with other snakes
-  yourFoodCount := you.Length() - 3 // Assuming initial length is 3
-  for _, opponent := range snapshot.Opponents() {
-    opponentFoodCount := opponent.Length() - 3
-    if yourFoodCount > opponentFoodCount {
-      survivalScore += 50 // Bonus for having more food than an opponent
+  // Reduce safety for food near borders
+  if food.X <= 1 || food.X >= snapshot.Width()-2 || food.Y <= 1 || food.Y >= snapshot.Height()-2 {
+    safety *= 0.5
+  }
+
+  // Reduce safety for food near enemy snakes
+  for _, enemy := range snapshot.Opponents() {
+    if manhattanDistance(enemy.Head(), food) < 3 {
+      safety *= 0.5
     }
   }
 
-  return survivalScore
+  return safety
 }
 
+// manhattanDistance calculates the Manhattan distance between two points
 func manhattanDistance2(p1, p2 rules.Point) int {
   return int(math.Abs(float64(p1.X-p2.X)) + math.Abs(float64(p1.Y-p2.Y)))
-}
-
-func calculateBorderPenalty(food rules.Point, width, height int) float64 {
-  distToBorder := math.Min(
-    math.Min(float64(food.X), float64(width-1-food.X)),
-    math.Min(float64(food.Y), float64(height-1-food.Y)),
-  )
-  return math.Max(0, 2-distToBorder) // Penalty decreases as distance to border increases
-}
-
-func calculateEnemyPenalty(food rules.Point, opponents []agent.SnakeSnapshot) float64 {
-  var minDistance int = math.MaxInt32
-  for _, opponent := range opponents {
-    dist := manhattanDistance(food, opponent.Head())
-    if dist < minDistance {
-      minDistance = dist
-    }
-  }
-  return math.Max(0, 5-float64(minDistance)) // Penalty decreases as distance to nearest enemy increases
 }

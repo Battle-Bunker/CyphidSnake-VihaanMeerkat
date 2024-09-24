@@ -21,7 +21,7 @@ func main() {
 		agent.NewHeuristic(1.0, "food", HeuristicFood),
 		agent.NewHeuristic(1.0, "food", HeuristicSafeSpaceWithVariedMovement),
 		agent.NewHeuristic(1.0, "food", HeuristicDistanceFromEnemies),
-		agent.NewHeuristic(1.0, "food", HeuristicFoodAndSurvival),
+		agent.NewHeuristic(1.0, "food", HeuristicFoodSafety),
 	)
 
 	snakeAgent := agent.NewSnakeAgent(portfolio, metadata)
