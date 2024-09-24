@@ -6,8 +6,12 @@ import (
   "math"
 )
 
-// HeuristicSafeSpace calculates a score based on the amount of safe space available to our team's snakes
-func HeuristicSafeSpace(snapshot agent.GameSnapshot) float64 {
+const (
+  RecentMovesCount = 3 // Number of recent moves to consider
+)
+
+// HeuristicSafeSpaceWithVariedMovement calculates a score based on safe space, distance from dangers, and movement variety
+func HeuristicSafeSpaceWithVariedMovement(snapshot agent.GameSnapshot) float64 {
   var totalScore float64
 
   for _, allySnake := range snapshot.YourTeam() {
@@ -15,67 +19,134 @@ func HeuristicSafeSpace(snapshot agent.GameSnapshot) float64 {
       continue
     }
 
-    safeSpace := calculateSafeSpace(allySnake, snapshot)
-    healthFactor := float64(allySnake.Health()) / 100.0
-    snakeScore := safeSpace * healthFactor
+    head := allySnake.Head()
+    safetyScore := calculateSafetyScore(snapshot, head)
+    spaceScore := calculateSpaceScore(snapshot, head)
+    movementVarietyScore := calculateMovementVarietyScore(allySnake)
 
-    totalScore += snakeScore
+    // Combine safety, space, and movement variety scores
+    snakeScore := (safetyScore*2 + spaceScore + movementVarietyScore) / 4
+
+    // Scale the score by the snake's health to prioritize survival
+    totalScore += snakeScore * float64(allySnake.Health())
   }
 
   return totalScore
 }
 
-func calculateSafeSpace(snake agent.SnakeSnapshot, snapshot agent.GameSnapshot) float64 {
-  head := snake.Head()
-  safeSpace := 0.0
+func calculateSafetyScore(snapshot agent.GameSnapshot, point rules.Point) float64 {
+  width := snapshot.Width()
+  height := snapshot.Height()
 
-  for x := 0; x < snapshot.Width(); x++ {
-    for y := 0; y < snapshot.Height(); y++ {
-      point := rules.Point{X: x, Y: y}
-      if isSafe(point, snake, snapshot) {
-        distance := manhattanDistance(head, point)
-        safeSpace += 1.0 / (1.0 + distance) // Closer safe spaces are more valuable
-      }
+  // Calculate distance from borders
+  borderDistance := math.Min(
+    math.Min(float64(point.X), float64(width-1-point.X)),
+    math.Min(float64(point.Y), float64(height-1-point.Y)),
+  )
+
+  // Calculate distance from other snakes
+  minSnakeDistance := math.Inf(1)
+  for _, snake := range snapshot.Opponents() {
+    if !snake.Alive() {
+      continue
+    }
+    for _, bodyPart := range snake.Body() {
+      distance := manhattanDistance(point, bodyPart)
+      minSnakeDistance = math.Min(minSnakeDistance, float64(distance))
     }
   }
 
-  return safeSpace
+  // Combine border and snake distances, normalizing to 0-1 range
+  safetyScore := (borderDistance/float64(width/2) + minSnakeDistance/float64(width+height)) / 2
+  return math.Min(safetyScore, 1.0) // Cap at 1.0
 }
 
-func isSafe(point rules.Point, snake agent.SnakeSnapshot, snapshot agent.GameSnapshot) bool {
-  // Check if the point is not occupied by any snake body
-  for _, otherSnake := range snapshot.AllSnakes() {
-    if containsPoint(otherSnake.Body(), point) {
-      return false
+func calculateSpaceScore(snapshot agent.GameSnapshot, point rules.Point) float64 {
+  width := snapshot.Width()
+  height := snapshot.Height()
+  totalSpace := width * height
+
+  occupiedSpace := make(map[rules.Point]bool)
+
+  // Mark occupied spaces
+  for _, snake := range snapshot.AllSnakes() {
+    if !snake.Alive() {
+      continue
+    }
+    for _, bodyPart := range snake.Body() {
+      occupiedSpace[bodyPart] = true
     }
   }
 
-  // Check if the point is not a hazard
-  for _, hazard := range snapshot.Hazards() {
-    if hazard == point {
-      return false
-    }
-  }
+  // Flood fill to calculate available space
+  availableSpace := floodFill(point, occupiedSpace, width, height)
 
-  // Check if the point is not adjacent to an enemy snake's head (unless we're longer)
-  for _, enemy := range snapshot.Opponents() {
-    if enemy.Alive() && manhattanDistance(enemy.Head(), point) == 1 && enemy.Length() >= snake.Length() {
-      return false
-    }
-  }
-
-  return true
+  // Normalize available space to 0-1 range
+  spaceScore := float64(availableSpace) / float64(totalSpace)
+  return spaceScore
 }
 
-func manhattanDistance(a, b rules.Point) float64 {
-  return math.Abs(float64(a.X-b.X)) + math.Abs(float64(a.Y-b.Y))
-}
+func calculateMovementVarietyScore(snake agent.SnakeSnapshot) float64 {
+  body := snake.Body()
+  if len(body) < RecentMovesCount+1 {
+    return 1.0 // Not enough moves to calculate, return max score
+  }
 
-func containsPoint(points []rules.Point, target rules.Point) bool {
-  for _, p := range points {
-    if p == target {
-      return true
+  recentMoves := make([]rules.Point, RecentMovesCount)
+  for i := 0; i < RecentMovesCount; i++ {
+    recentMoves[i] = rules.Point{
+      X: body[i].X - body[i+1].X,
+      Y: body[i].Y - body[i+1].Y,
     }
   }
-  return false
+
+  uniqueMoves := make(map[rules.Point]bool)
+  for _, move := range recentMoves {
+    uniqueMoves[move] = true
+  }
+
+  varietyScore := float64(len(uniqueMoves)) / float64(RecentMovesCount)
+  return varietyScore
+}
+
+func manhattanDistance(p1, p2 rules.Point) int {
+  return abs(p1.X-p2.X) + abs(p1.Y-p2.Y)
+}
+
+func abs(x int) int {
+  if x < 0 {
+    return -x
+  }
+  return x
+}
+
+func floodFill(start rules.Point, occupied map[rules.Point]bool, width, height int) int {
+  if occupied[start] {
+    return 0
+  }
+
+  queue := []rules.Point{start}
+  visited := make(map[rules.Point]bool)
+  count := 0
+
+  for len(queue) > 0 {
+    current := queue[0]
+    queue = queue[1:]
+
+    if visited[current] || occupied[current] ||
+      current.X < 0 || current.X >= width ||
+      current.Y < 0 || current.Y >= height {
+      continue
+    }
+
+    visited[current] = true
+    count++
+
+    queue = append(queue, rules.Point{X: current.X + 1, Y: current.Y})
+    queue = append(queue, rules.Point{X: current.X - 1, Y: current.Y})
+    queue = append(queue, rules.Point{X: current.X, Y: current.Y + 1})
+    queue = append(queue, rules.Point{X: current.X, Y: current.Y - 1})
+  }
+
+  return count
 }

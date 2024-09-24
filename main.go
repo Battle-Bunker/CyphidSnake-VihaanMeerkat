@@ -12,15 +12,16 @@ func main() {
 		APIVersion: "1",
 		Author:     "",
 		Color:      "#FFD700",
-		Head:       "default",
-		Tail:       "default",
+		Head:       "fang",
+		Tail:       "hook",
 	}
 
 	portfolio := agent.NewPortfolio(
 		agent.NewHeuristic(1.0, "team-health", HeuristicHealth),
 		agent.NewHeuristic(1.0, "food", HeuristicFood),
-		agent.NewHeuristic(1.0, "food", HeuristicSafeSpace),
-		agent.NewHeuristic(1.0, "food", HeuristicEnemyDistance),
+		agent.NewHeuristic(1.0, "food", HeuristicSafeSpaceWithVariedMovement),
+		agent.NewHeuristic(1.0, "food", HeuristicDistanceFromEnemies),
+		agent.NewHeuristic(1.0, "food", HeuristicFoodAndSurvival),
 	)
 
 	snakeAgent := agent.NewSnakeAgent(portfolio, metadata)

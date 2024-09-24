@@ -7,34 +7,39 @@ import (
   "github.com/Battle-Bunker/cyphid-snake/agent"
 )
 
-// HeuristicEnemyDistance calculates a score based on the average distance
-// between your team's snakes and enemy snakes.
-func HeuristicEnemyDistance(snapshot agent.GameSnapshot) float64 {
-  yourTeam := snapshot.YourTeam()
-  opponents := snapshot.Opponents()
+// HeuristicDistanceFromEnemies calculates a score based on how far our snakes are from enemy snakes.
+// A higher score indicates a better position (further from enemies).
+func HeuristicDistanceFromEnemies(snapshot agent.GameSnapshot) float64 {
+  var totalScore float64
 
-  if len(yourTeam) == 0 || len(opponents) == 0 {
-    return 0
-  }
+  for _, allySnake := range snapshot.YourTeam() {
+    if !allySnake.Alive() {
+      continue
+    }
 
-  totalDistance := 0.0
-  count := 0
+    allyHead := allySnake.Head()
+    minDistance := math.Inf(1)
 
-  for _, ally := range yourTeam {
-    for _, enemy := range opponents {
-      distance := manhattanDistance(ally.Head(), enemy.Head())
-      totalDistance += distance
-      count++
+    for _, enemySnake := range snapshot.Opponents() {
+      if !enemySnake.Alive() {
+        continue
+      }
+
+      enemyHead := enemySnake.Head()
+      distance := manhattanDistance(allyHead, enemyHead)
+
+      if distance < int(minDistance) {
+          minDistance = float64(distance)
+      }
+    }
+
+    // We want a higher score for greater distances
+    if minDistance != math.Inf(1) {
+      totalScore += minDistance
     }
   }
 
-  averageDistance := totalDistance / float64(count)
-
-  // Normalize the score to be between 0 and 100
-  maxPossibleDistance := float64(snapshot.Width() + snapshot.Height())
-  normalizedScore := (averageDistance / maxPossibleDistance) * 100
-
-  return normalizedScore
+  return totalScore
 }
 
 // manhattanDistance calculates the Manhattan distance between two points
